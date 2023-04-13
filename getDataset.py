@@ -1,31 +1,56 @@
-import tensorflow as tf
 import pandas as pd
+import numpy as np
+import tensorflow as tf
 from PIL import Image
 
-nameOfCSV = 'result.csv'
-pathToImage = '../VehicleID_V1.0/image/'
+class SiameseDataset(tf.keras.utils.Sequence):
+    def __init__(self, csv_path, img_dir, batch_size, img_size):
+        self.df = pd.read_csv(csv_path)
+        self.img_dir = img_dir
+        self.batch_size = batch_size
+        self.img_size = img_size
 
-data = pd.read_csv(nameOfCSV, dtype={'car1': object, 'car2': object})
+    def __len__(self):
+        return int(np.ceil(len(self.df) / float(self.batch_size)))
 
-dataset = []
-for i in range(len(data)):
-    img_path1 = "{}{}.jpg".format(pathToImage, data.iloc[i]['car1'])
-    img_path2 = "{}{}.jpg".format(pathToImage, data.iloc[i]['car2'])
-    img1 = Image.open(img_path1)
-    img2 = Image.open(img_path2)
-    target = data.iloc[i]['distance']
-    sample = {'image1': img1, 'image2': img2, 'target': target}
-    dataset.append(sample)
-    img1.close()
-    img2.close()
+    def __getitem__(self, idx):
+        batch_df = self.df.iloc[idx * self.batch_size:(idx + 1) * self.batch_size].reset_index(drop=True)
+        batch_df = batch_df.iloc[np.random.permutation(len(batch_df))]  # перемешиваем индексы строк
+        batch_images1 = []
+        batch_images2 = []
+        batch_labels = []
+        for i, row in batch_df.iterrows():
+            img1 = Image.open("{}{}.jpg".format(self.img_dir, row['car1']))
+            img1 = img1.resize((self.img_size, self.img_size))
+            img1 = np.array(img1)
+            batch_images1.append(img1)
 
-def preprocess(sample):
-    img1 = tf.convert_to_tensor(sample['image1'])
-    img2 = tf.convert_to_tensor(sample['image2'])
-    target = tf.constant(sample['target'], dtype=tf.float32)
-    return (img1, img2), target
+            img2 = Image.open("{}{}.jpg".format(self.img_dir, row['car2']))
+            img2 = img2.resize((self.img_size, self.img_size))
+            img2 = np.array(img2)
+            batch_images2.append(img2)
 
-tf_dataset = tf.data.Dataset.from_tensor_slices(dataset)
-tf_dataset = tf_dataset.map(preprocess)
+            batch_labels.append(row['distance'])
+        return [np.array(batch_images1), np.array(batch_images2)], np.array(batch_labels)
 
-tf.data.experimental.save(tf_dataset, 'dataset.tfrecord')
+    def get_batch_pairs(self, batch_size):
+        batch_df = self.df.sample(batch_size)
+        batch_images1 = []
+        batch_images2 = []
+        batch_labels = []
+        for i, row in batch_df.iterrows():
+            img1 = Image.open(self.img_dir + row['car1'])
+            img1 = img1.resize((self.img_size, self.img_size))
+            img1 = np.array(img1)
+            batch_images1.append(img1)
+
+            img2 = Image.open(self.img_dir + row['car2'])
+            img2 = img2.resize((self.img_size, self.img_size))
+            img2 = np.array(img2)
+            batch_images2.append(img2)
+
+            batch_labels.append(row['distance'])
+        return [np.array(batch_images1), np.array(batch_images2)], np.array(batch_labels)
+
+def getSiameseDataset(csv_path, img_dir, batch_size, img_size):
+    return SiameseDataset(csv_path, img_dir, batch_size, img_size)

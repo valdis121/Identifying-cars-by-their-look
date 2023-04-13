@@ -10,7 +10,7 @@ minCost = 0
 maxCost = 100
 pathToLabels = '../VehicleID_V1.0/train_test_split/train_list.txt'
 nameOfResult = 'result.csv'
-numberOfSamplesOnOneCar = 100
+numberOfSamplesOnOneCar = 10
 
 labels = open(pathToLabels, 'r')
 result = open(nameOfResult, 'w')
