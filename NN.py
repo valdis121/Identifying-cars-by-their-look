@@ -55,7 +55,7 @@ valDg = getDataset.getSiameseDataset('val.csv', '../VehicleID_V1.0/image/', 128,
 model = create_siamese_network((64, 64) + (3,))
 rms = RMSprop()
 # Компиляция модели
-model.compile(optimizer=rms, loss=contrastive_loss, metrics=['accuracy'])
+model.compile(optimizer="adam", loss=contrastive_loss, metrics=['accuracy'])
 
 # Тренировка модели
 model.fit(trainDg, epochs=10, validation_data=valDg)
