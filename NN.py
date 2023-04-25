@@ -12,6 +12,7 @@ training_csv = 'result.csv'
 training_dir = '../VehicleID_V1.0/image/'
 siamese_dataset = getSiameseDataset(training_csv, training_dir,
                                         transform=transforms.Compose([transforms.Resize((105,105)),
+                                                                      transforms.Grayscale(),
                                                                       transforms.ToTensor()
                                                                       ]))
 
@@ -52,7 +53,7 @@ class SiameseNetwork(nn.Module):
             nn.Linear(1024, 128),
             nn.ReLU(inplace=True),
 
-            nn.Linear(128, 2))
+            nn.Linear(128, 64))
 
     def forward_once(self, x):
         # Forward pass
@@ -83,7 +84,7 @@ class ContrastiveLoss(torch.nn.Module):
 
         return loss_contrastive
 
-train_dataloader = DataLoader(siamese_dataset, num_workers=1, batch_size=1, shuffle=True)
+train_dataloader = DataLoader(siamese_dataset, num_workers=8, batch_size=128, shuffle=True)
 # Declare Siamese Network
 net = SiameseNetwork().cuda()
 #net = SiameseNetwork()
@@ -97,7 +98,7 @@ def train():
     loss = []
     counter = []
     iteration_number = 0
-    for epoch in range(1, 100):
+    for epoch in range(1, 5):
         for i, data in enumerate(train_dataloader, 0):
             img0, img1, label = data
             img0, img1, label = img0.cuda(), img1.cuda(), label.cuda()
