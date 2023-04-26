@@ -12,8 +12,9 @@ class SiameseDataset():
         # used to prepare the labels and images path
         self.train_df = pd.read_csv(training_csv, dtype={"car1": object, "car2": object})
         self.train_df.columns =["image1", "image2", "label"]
-        self.train_dir = training_dir    
+        self.train_dir = training_dir
         self.transform = transform
+
 
     def __getitem__(self, index):
         # getting the image path
@@ -22,8 +23,6 @@ class SiameseDataset():
         # Loading the image
         img0 = Image.open(image1_path)
         img1 = Image.open(image2_path)
-        img0 = img0.convert("L")
-        img1 = img1.convert("L")
         # Apply image transformations
         if self.transform is not None:
             img0 = self.transform(img0)

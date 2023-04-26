@@ -6,83 +6,139 @@ from torch.utils.data import DataLoader
 from torchgen.context import F
 from torchvision import transforms
 from collections import defaultdict
+from torchvision import models
+import random
 
-class MyNetwork(nn.Module):
-    def __init__(self):
-        super(MyNetwork, self).__init__()
-        # Setting up the Sequential of CNN Layers
-        self.cnn1 = nn.Sequential(
-            nn.Conv2d(1, 96, kernel_size=11, stride=1),
-            nn.ReLU(inplace=True),
-            nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=2),
-            nn.MaxPool2d(3, stride=2),
+class SiameseNetwork(nn.Module):
+    def __init__(self, backbone="resnet18"):
+        '''
+        Creates a siamese network with a network from torchvision.models as backbone.
+            Parameters:
+                    backbone (str): Options of the backbone networks can be found at https://pytorch.org/vision/stable/models.html
+        '''
 
-            nn.Conv2d(96, 256, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(inplace=True),
-            nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=2),
-            nn.MaxPool2d(3, stride=2),
-            nn.Dropout2d(p=0.3),
+        super().__init__()
 
-            nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
+        if backbone not in models.__dict__:
+            raise Exception("No model named {} exists in torchvision.models.".format(backbone))
 
-            nn.Conv2d(384, 256, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(3, stride=2),
-            nn.Dropout2d(p=0.3),
+        # Create a backbone network from the pretrained models provided in torchvision.models
+        self.backbone = models.__dict__[backbone](pretrained=True, progress=True)
+
+        # Get the number of features that are outputted by the last layer of backbone network.
+        out_features = list(self.backbone.modules())[-1].out_features
+
+        # Create an MLP (multi-layer perceptron) as the classification head.
+        # Classifies if provided combined feature vector of the 2 images represent same player or different.
+        self.cls_head = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(out_features, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+
+            nn.Dropout(p=0.5),
+            nn.Linear(512, 64),
+            nn.BatchNorm1d(64),
+            nn.Sigmoid(),
+            nn.Dropout(p=0.5),
+
+            nn.Linear(64, 1),
+            nn.Sigmoid(),
         )
-        # Defining the fully connected layers
-        self.fc1 = nn.Sequential(
-            nn.Linear(30976, 1024),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(p=0.5),
 
-            nn.Linear(1024, 128),
-            nn.ReLU(inplace=True),
+    def forward(self, img1, img2):
+        '''
+        Returns the similarity value between two images.
+            Parameters:
+                    img1 (torch.Tensor): shape=[b, 3, 224, 224]
+                    img2 (torch.Tensor): shape=[b, 3, 224, 224]
+            where b = batch size
+            Returns:
+                    output (torch.Tensor): shape=[b, 1], Similarity of each pair of images
+        '''
 
-            # Удаляем последний слой, который вычисляет расстояния
+        # Pass the both images through the backbone network to get their seperate feature vectors
+        feat1 = self.backbone(img1)
+        feat2 = self.backbone(img2)
 
-            nn.Linear(128, 2))
+        # Multiply (element-wise) the feature vectors of the two images together,
+        # to generate a combined feature vector representing the similarity between the two.
+        combined_features = feat1 * feat2
 
-    def forward_once(self, x):
-        # Forward pass
-        output = self.cnn1(x)
-        output = output.view(output.size()[0], -1)
-        output = self.fc1(output)
+        # Pass the combined feature vector through classification head to get similarity value in the range of 0 to 1.
+        output = self.cls_head(combined_features)
         return output
 
-    def forward(self, input):
-        # forward pass
-        output = self.forward_once(input)
-        return output
-
-state_dict = torch.load('temp_net30.pt')
-model = MyNetwork()
-model.load_state_dict(state_dict)
-
+state_dict = torch.load('epoch_14.pth')
+model = SiameseNetwork()
+model.load_state_dict(state_dict['model_state_dict'])
+model.eval()
 pathToLabels = '../VehicleID_V1.0/train_test_split/test_list_800.txt'
-nameOfResult = 'val.csv'
-result = open(nameOfResult, 'w')
+nameOfResult = 'res.csv'
+res = open(nameOfResult, 'w')
 labels = open(pathToLabels, 'r')
-
-for line in labels:
-    strings = line.split(' ')
-    car = ''.join(e for e in strings[0] if e.isalnum())
-    id = ''.join(e for e in strings[1] if e.isalnum())
-    image = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car))
-    image = image.resize((105, 105))
-    image = image.convert('L')
-    transform = transforms.Compose([
+feed_shape = [3, 224, 224]
+transform = transforms.Compose([
         transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Resize(feed_shape[1:])
     ])
+t = list(labels)
+test = []
+for m in range(100):
+    ran = random.randint(0,len(t))
+    strings = t[ran].split(' ')
+    car_main = ''.join(e for e in strings[0] if e.isalnum())
+    id_main = ''.join(e for e in strings[1] if e.isalnum())
+    image = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car_main))
     img_tensor = transform(image)
     img_tensor = img_tensor.unsqueeze(0)
-    with torch.no_grad():
-        model.eval()
-        output = model.forward_once(img_tensor)
-        result.write("{},{}\n".format(output, id))
+    result = []
+    k=0
+    for line in t:
+        print('Proccesed {}/{}\n'.format(k,len(t)))
+        k+=1
+        strings = line.split(' ')
+        car = ''.join(e for e in strings[0] if e.isalnum())
+        if car == car_main:
+            continue
+        id = ''.join(e for e in strings[1] if e.isalnum())
+        if id == id_main:
+            image2 = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car))
+            img_tensor2 = transform(image2)
+            img_tensor2 = img_tensor2.unsqueeze(0)
+            with torch.no_grad():
+                output = model(img_tensor2, img_tensor)
+                result.append((float(output.numpy()[0]), id))
+    d = (len(result))*10
+    k = len(result)
+    lenR = k
+    while(k < d):
+        rand = random.randint(0,len(t))
+        strings = t[rand].split(' ')
+        car = ''.join(e for e in strings[0] if e.isalnum())
+        id = ''.join(e for e in strings[1] if e.isalnum())
+        image2 = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car))
+        img_tensor2 = transform(image2)
+        img_tensor2 = img_tensor2.unsqueeze(0)
+        if id != id_main:
+            k+=1
+            with torch.no_grad():
+                output = model(img_tensor2, img_tensor)
+                result.append((float(output.numpy()[0]), id))
+    def sort_col(i):
+        return i[0]
+    result.sort(key=sort_col)
 
+    print(result)
+    print(id_main)
+    print(len(result))
+    n = 0
+    for i in range(lenR):
+        if result[i][1] == id_main:
+            n += 1
+    test.append(100*n/lenR)
 
-
-#euclidean_distance = torch.nn.functional.pairwise_distance(output1, output2)
+n = sum(test)/len(test)
+print("{}%".format(n))
 

@@ -1,124 +1,198 @@
-from multiprocessing import freeze_support
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from getDataset import getSiameseDataset
+from torchvision import models
+import os
+import argparse
+from torchvision import transforms
+import cv2
+import numpy as np
+from tqdm import tqdm
 
 import torch
-from torch import nn
-import torch as th
 from torch.utils.data import DataLoader
-from torchgen.context import F
-from getDataset import getSiameseDataset
-from torchvision import transforms
-
-training_csv = 'result.csv'
-training_dir = '../VehicleID_V1.0/image/'
-siamese_dataset = getSiameseDataset(training_csv, training_dir,
-                                        transform=transforms.Compose([transforms.Resize((105,105)),
-                                                                      transforms.Grayscale(),
-                                                                      transforms.ToTensor()
-                                                                      ]))
-
-# create a siamese network
-
+from torch.utils.tensorboard import SummaryWriter
 
 
 class SiameseNetwork(nn.Module):
-    def __init__(self):
-        super(SiameseNetwork, self).__init__()
-        # Setting up the Sequential of CNN Layers
-        self.cnn1 = nn.Sequential(
-            nn.Conv2d(1, 96, kernel_size=11, stride=1),
-            nn.ReLU(inplace=True),
-            nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=2),
-            nn.MaxPool2d(3, stride=2),
+    def __init__(self, backbone="resnet18"):
+        '''
+        Creates a siamese network with a network from torchvision.models as backbone.
+            Parameters:
+                    backbone (str): Options of the backbone networks can be found at https://pytorch.org/vision/stable/models.html
+        '''
 
-            nn.Conv2d(96, 256, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(inplace=True),
-            nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=2),
-            nn.MaxPool2d(3, stride=2),
-            nn.Dropout2d(p=0.3),
+        super().__init__()
 
-            nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
+        if backbone not in models.__dict__:
+            raise Exception("No model named {} exists in torchvision.models.".format(backbone))
 
-            nn.Conv2d(384, 256, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(3, stride=2),
-            nn.Dropout2d(p=0.3),
+        # Create a backbone network from the pretrained models provided in torchvision.models
+        self.backbone = models.__dict__[backbone](pretrained=True, progress=True)
+
+        # Get the number of features that are outputted by the last layer of backbone network.
+        out_features = list(self.backbone.modules())[-1].out_features
+
+        # Create an MLP (multi-layer perceptron) as the classification head.
+        # Classifies if provided combined feature vector of the 2 images represent same player or different.
+        self.cls_head = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(out_features, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+
+            nn.Dropout(p=0.5),
+            nn.Linear(512, 64),
+            nn.BatchNorm1d(64),
+            nn.Sigmoid(),
+            nn.Dropout(p=0.5),
+
+            nn.Linear(64, 1),
+            nn.Sigmoid(),
         )
-        # Defining the fully connected layers
-        self.fc1 = nn.Sequential(
-            nn.Linear(30976, 1024),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(p=0.5),
 
-            nn.Linear(1024, 128),
-            nn.ReLU(inplace=True),
+    def forward(self, img1, img2):
+        '''
+        Returns the similarity value between two images.
+            Parameters:
+                    img1 (torch.Tensor): shape=[b, 3, 224, 224]
+                    img2 (torch.Tensor): shape=[b, 3, 224, 224]
+            where b = batch size
+            Returns:
+                    output (torch.Tensor): shape=[b, 1], Similarity of each pair of images
+        '''
 
-            nn.Linear(128, 64))
+        # Pass the both images through the backbone network to get their seperate feature vectors
+        feat1 = self.backbone(img1)
+        feat2 = self.backbone(img2)
 
-    def forward_once(self, x):
-        # Forward pass
-        output = self.cnn1(x)
-        output = output.view(output.size()[0], -1)
-        output = self.fc1(output)
+        # Multiply (element-wise) the feature vectors of the two images together,
+        # to generate a combined feature vector representing the similarity between the two.
+        combined_features = feat1 * feat2
+
+        # Pass the combined feature vector through classification head to get similarity value in the range of 0 to 1.
+        output = self.cls_head(combined_features)
         return output
 
-    def forward(self, input1, input2):
-        # forward pass of input 1
-        output1 = self.forward_once(input1)
-        # forward pass of input 2
-        output2 = self.forward_once(input2)
-        return output1, output2
-
-class ContrastiveLoss(torch.nn.Module):
-    def __init__(self, margin=2.0):
-        super(ContrastiveLoss, self).__init__()
-        self.margin = margin
-
-    def forward(self, output1, output2, label):
-        # Find the pairwise distance or eucledian distance of two output feature vectors
-        euclidean_distance = torch.nn.functional.pairwise_distance(output1, output2)
-        # perform contrastive loss calculation with the distance
-        loss_contrastive = torch.mean((1 - label) * torch.pow(euclidean_distance, 2) +
-                                      (label) * torch.pow(torch.clamp(self.margin - euclidean_distance, min=0.0),
-                                                          2))
-
-        return loss_contrastive
-
-train_dataloader = DataLoader(siamese_dataset, num_workers=8, batch_size=128, shuffle=True)
-# Declare Siamese Network
-net = SiameseNetwork().cuda()
-#net = SiameseNetwork()
-# Decalre Loss Function
-criterion = ContrastiveLoss()
-# Declare Optimizer
-optimizer = th.optim.Adam(net.parameters(), lr=1e-3, weight_decay=0.0005)
-
-
-def train():
-    loss = []
-    counter = []
-    iteration_number = 0
-    for epoch in range(1, 5):
-        for i, data in enumerate(train_dataloader, 0):
-            img0, img1, label = data
-            img0, img1, label = img0.cuda(), img1.cuda(), label.cuda()
-            #img0, img1, label = img0, img1, label
-            optimizer.zero_grad()
-            output1, output2 = net(img0, img1)
-            loss_contrastive = criterion(output1, output2, label)
-            loss_contrastive.backward()
-            optimizer.step()
-            if i%10 == 0:
-                print("Epoch {}\n Current loss {}\n Image {}/{}\n".format(epoch, loss_contrastive.item(), i, len(train_dataloader)))
-        print("Epoch {}\n Current loss {}\n".format(epoch, loss_contrastive.item()))
-        iteration_number += 10
-        counter.append(iteration_number)
-        loss.append(loss_contrastive.item())
-    return net
-
-    # set the device to cuda
 if __name__ == '__main__':
-    device = torch.device('cuda' if th.cuda.is_available() else 'cpu')
-    model = train()
-    torch.save(model.state_dict(), "model.pt")
-    print("Model Saved Successfully")
+
+    training_csv = 'result.csv'
+    val_csv = 'val.csv'
+    training_dir = '../VehicleID_V1.0/image/'
+    feed_shape = [3, 224, 224]
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Resize(feed_shape[1:])
+    ])
+    transform1 = transforms.Compose([
+        transforms.RandomAffine(degrees=20, translate=(0.2, 0.2), scale=(0.8, 1.2), shear=0.2),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Resize(feed_shape[1:])
+    ])
+    train_dataset = getSiameseDataset(training_csv, training_dir,
+                                        transform=transform1)
+    val_dataset = getSiameseDataset(val_csv, training_dir,
+                                      transform=transform)
+
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    train_dataloader = DataLoader(train_dataset, num_workers=2, batch_size=64, drop_last=True, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=32)
+
+    model = SiameseNetwork(backbone="resnet18")
+    model.to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = torch.nn.BCELoss()
+
+    writer = SummaryWriter("summary")
+
+    best_val = 10000000000
+
+    for epoch in range(100):
+        print("[{} / {}]".format(epoch, 100))
+        model.train()
+        print(device)
+        losses = []
+        correct = 0
+        total = 0
+
+        # Training Loop Start
+        for img1, img2, y in train_dataloader:
+
+            img1, img2, y = map(lambda x: x.to(device), [img1, img2, y])
+
+            prob = model(img1, img2)
+            loss = criterion(prob, y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            losses.append(loss.item())
+            correct += torch.count_nonzero(y == (prob > 0.5)).item()
+            total += len(y)
+            if total%100 == 0:
+                print("Actually processed {}/{}".format(total, len(train_dataloader)*8))
+                print("\tTraining: Loss={:.2f}\t Accuracy={:.2f}\t".format(sum(losses) / len(losses), correct / total))
+
+        writer.add_scalar('train_loss', sum(losses) / len(losses), epoch)
+        writer.add_scalar('train_acc', correct / total, epoch)
+
+        print("\tTraining: Loss={:.2f}\t Accuracy={:.2f}\t".format(sum(losses) / len(losses), correct / total))
+        # Training Loop End
+
+        # Evaluation Loop Start
+        model.eval()
+
+        losses = []
+        correct = 0
+        total = 0
+
+        for img1, img2, y in val_dataloader:
+            img1, img2, y = map(lambda x: x.to(device), [img1, img2, y])
+
+            prob = model(img1, img2)
+            loss = criterion(prob, y)
+
+            losses.append(loss.item())
+            correct += torch.count_nonzero(y == (prob > 0.5)).item()
+            total += len(y)
+
+
+        val_loss = sum(losses) / max(1, len(losses))
+        writer.add_scalar('val_loss', val_loss, epoch)
+        writer.add_scalar('val_acc', correct / total, epoch)
+
+        print("\tValidation: Loss={:.2f}\t Accuracy={:.2f}\t".format(val_loss, correct / total))
+        # Evaluation Loop End
+
+        # Update "best.pth" model if val_loss in current epoch is lower than the best validation loss
+        if val_loss < best_val:
+            best_val = val_loss
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "backbone": "resnet18",
+                    "optimizer_state_dict": optimizer.state_dict()
+                },
+                "best.pth"
+            )
+
+            # Save model based on the frequency defined by "args.save_after"
+        if (epoch + 1) % 5 == 0:
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "backbone": "resnet18",
+                    "optimizer_state_dict": optimizer.state_dict()
+                },
+                "epoch_{}.pth".format(epoch + 1)
+            )
