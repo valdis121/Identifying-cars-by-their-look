@@ -89,12 +89,16 @@ test = []
 correct1=0
 correct5=0
 k=0
+ids = []
 for m in t:
-    print('Proccesed {}/{}\n'.format(k, len(t)))
-    k += 1
     strings = m.split(' ')
     car_main = ''.join(e for e in strings[0] if e.isalnum())
     id_main = ''.join(e for e in strings[1] if e.isalnum())
+    if id_main in ids:
+        continue
+    ids.append(id_main)
+    print('Proccesed {}/{}\n'.format(k, 800))
+    k += 1
     image = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car_main))
     img_tensor = transform(image)
     img_tensor = img_tensor.unsqueeze(0)
