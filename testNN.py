@@ -73,6 +73,7 @@ state_dict = torch.load('epoch_14.pth')
 model = SiameseNetwork()
 model.load_state_dict(state_dict['model_state_dict'])
 model.eval()
+model.cuda()
 pathToLabels = '../VehicleID_V1.0/train_test_split/test_list_800.txt'
 nameOfResult = 'res.csv'
 res = open(nameOfResult, 'w')
@@ -85,60 +86,43 @@ transform = transforms.Compose([
     ])
 t = list(labels)
 test = []
-for m in range(100):
-    ran = random.randint(0,len(t))
-    strings = t[ran].split(' ')
+correct1=0
+correct5=0
+k=0
+for m in t:
+    print('Proccesed {}/{}\n'.format(k, len(t)))
+    k += 1
+    strings = m.split(' ')
     car_main = ''.join(e for e in strings[0] if e.isalnum())
     id_main = ''.join(e for e in strings[1] if e.isalnum())
     image = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car_main))
     img_tensor = transform(image)
     img_tensor = img_tensor.unsqueeze(0)
     result = []
-    k=0
     for line in t:
-        print('Proccesed {}/{}\n'.format(k,len(t)))
-        k+=1
         strings = line.split(' ')
         car = ''.join(e for e in strings[0] if e.isalnum())
         if car == car_main:
             continue
         id = ''.join(e for e in strings[1] if e.isalnum())
-        if id == id_main:
-            image2 = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car))
-            img_tensor2 = transform(image2)
-            img_tensor2 = img_tensor2.unsqueeze(0)
-            with torch.no_grad():
-                output = model(img_tensor2, img_tensor)
-                result.append((float(output.numpy()[0]), id))
-    d = (len(result))*10
-    k = len(result)
-    lenR = k
-    while(k < d):
-        rand = random.randint(0,len(t))
-        strings = t[rand].split(' ')
-        car = ''.join(e for e in strings[0] if e.isalnum())
-        id = ''.join(e for e in strings[1] if e.isalnum())
         image2 = Image.open('../VehicleID_V1.0/image/{}.jpg'.format(car))
         img_tensor2 = transform(image2)
         img_tensor2 = img_tensor2.unsqueeze(0)
-        if id != id_main:
-            k+=1
-            with torch.no_grad():
-                output = model(img_tensor2, img_tensor)
-                result.append((float(output.numpy()[0]), id))
+        with torch.no_grad():
+            output = model(img_tensor2.cuda(), img_tensor.cuda())
+            result.append((float(output.cpu().numpy()[0]), id))
     def sort_col(i):
         return i[0]
     result.sort(key=sort_col)
+    if result[0][1]==id_main:
+        correct1+=1
+    for i in range(5):
+        if result[i][1]==id_main:
+            correct5+=1
+            break
 
-    print(result)
-    print(id_main)
-    print(len(result))
-    n = 0
-    for i in range(lenR):
-        if result[i][1] == id_main:
-            n += 1
-    test.append(100*n/lenR)
-
-n = sum(test)/len(test)
-print("{}%".format(n))
+n1 = (correct1*100)/len(t)
+n5 = (correct5*100)/len(t)
+print("Hit 1 = {}%".format(n1))
+print("Hit 5 = {}%".format(n5))
 
