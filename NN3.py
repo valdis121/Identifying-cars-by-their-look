@@ -97,8 +97,6 @@ def formDictinary(csvPah='/content/model_attr_converted.csv'):
         my_dict = {}
         for line in csv_file:
             elems = line.split()
-            if elems[0] == "22551":
-                print(elems)
             my_dict[elems[0]] = elems[1]
 
     return my_dict
