@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from getDataset import getSiameseDataset
+from getDataset2 import getSiameseDataset
 from torchvision import models
 import os
 import argparse
@@ -82,6 +82,45 @@ class SiameseNetwork(nn.Module):
         output = self.classifier(features)
         return output
 
+def formDictionary2(csvPah='/content/VehicleID_V1.0/train_test_split/train_list.txt'):
+    with open(csvPah, 'r') as csv_file:
+        my_dict = {}
+        for line in csv_file:
+            elems = line.split()
+            my_dict[elems[0]] = elems[1]
+
+    return my_dict
+
+
+def formDictinary(csvPah='/content/model_attr_converted.csv'):
+    with open(csvPah, 'r') as csv_file:
+        my_dict = {}
+        for line in csv_file:
+            elems = line.split()
+            if elems[0] == "22551":
+                print(elems)
+            my_dict[elems[0]] = elems[1]
+
+    return my_dict
+
+
+def filerCSV(path, data, data_attr):
+    with open(path, 'r') as input_file, open('filtred_test.csv', 'w', newline='') as output_file:
+        writer = csv.writer(output_file)
+
+        for line in input_file:
+            line = line.strip()
+            fields = line.split()
+            if data.get(fields[1]) is None:
+                continue
+            writer.writerow(fields)
+
+def formFilter(path="/content/VehicleID_V1.0/train_test_split/train_list.txt"):
+    result = open("model_attr_converted.csv", 'w') 
+    result.close()
+    data = formDictinary("/content/VehicleID_V1.0/attribute/model_attr.txt")
+    data_attr = formDictionary2()
+    filerCSV(path, data, data_attr)
 
 class ContrastiveLoss(torch.nn.Module):
 
@@ -100,6 +139,7 @@ class ContrastiveLoss(torch.nn.Module):
     
 
 if __name__ == '__main__': 
+    formFilter()
     ids1 = dict()
     with open('/content/filtred_test.csv', 'r') as f:
         for line in f:
