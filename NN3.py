@@ -91,7 +91,7 @@ class SiameseNetwork(nn.Module):
         output = self.classifier(features)
         return output
 
-def formDictionary2(csvPah='/content/VehicleID_V1.0/train_test_split/train_list.txt'):
+def formDictionary2(csvPah='VehicleID_V1.0/train_test_split/train_list.txt'):
     with open(csvPah, 'r') as csv_file:
         my_dict = {}
         for line in csv_file:
@@ -101,7 +101,7 @@ def formDictionary2(csvPah='/content/VehicleID_V1.0/train_test_split/train_list.
     return my_dict
 
 
-def formDictinary(csvPah='/content/model_attr_converted.csv'):
+def formDictinary(csvPah='model_attr_converted.csv'):
     with open(csvPah, 'r') as csv_file:
         my_dict = {}
         for line in csv_file:
@@ -122,10 +122,10 @@ def filerCSV(path, data, data_attr):
                 continue
             writer.writerow(fields)
 
-def formFilter(path="/content/VehicleID_V1.0/train_test_split/train_list.txt"):
+def formFilter(path="VehicleID_V1.0/train_test_split/train_list.txt"):
     result = open("model_attr_converted.csv", 'w') 
     result.close()
-    data = formDictinary("/content/VehicleID_V1.0/attribute/model_attr.txt")
+    data = formDictinary("VehicleID_V1.0/attribute/model_attr.txt")
     data_attr = formDictionary2()
     filerCSV(path, data, data_attr)
 
@@ -148,7 +148,7 @@ class ContrastiveLoss(torch.nn.Module):
 if __name__ == '__main__': 
     formFilter()
     ids1 = dict()
-    with open('/content/filtred_test.csv', 'r') as f:
+    with open('filtred_test.csv', 'r') as f:
         for line in f:
             strings = line.split(',')
             ids1[strings[1]] = False
@@ -160,7 +160,7 @@ if __name__ == '__main__':
     result2 = open('for_result.csv', 'w')
     val_counter = 0
     result_counter = 0
-    with open('/content/filtred_test.csv', 'r') as csv_file:  
+    with open('filtred_test.csv', 'r') as csv_file:  
         for line in csv_file:
             strings = line.split(',') 
             if ids1[strings[1]]:
@@ -180,11 +180,11 @@ if __name__ == '__main__':
         return []
 
 
-    data = formDictinary('/content/VehicleID_V1.0/attribute/model_attr.txt')
+    data = formDictinary('VehicleID_V1.0/attribute/model_attr.txt')
     minCost = 0
     maxCost = 1
-    # pathToLabels = '/content/datset2/Dataset/train_test_split/test_list_800.txt' 
-    pathToLabels = '/content/for_result.csv'
+    # pathToLabels = 'datset2/Dataset/train_test_split/test_list_800.txt' 
+    pathToLabels = 'for_result.csv'
 
     nameOfResult = 'result.csv'
     numberOfSamplesOnOneCar = 5
@@ -245,8 +245,8 @@ if __name__ == '__main__':
 
     minCost = 0
     maxCost = 1
-    # pathToLabels = '/content/datset2/Dataset/train_test_split/test_list_800.txt' 
-    pathToLabels = '/content/for_val.csv'
+    # pathToLabels = 'datset2/Dataset/train_test_split/test_list_800.txt' 
+    pathToLabels = 'for_val.csv'
 
     nameOfResult = 'val.csv'
     numberOfSamplesOnOneCar = 5
@@ -305,9 +305,9 @@ if __name__ == '__main__':
     print("Num of samples = {}".format(n))
 
 
-    training_csv = '/content/result.csv'
-    val_csv = '/content/val.csv'
-    training_dir = '/content/VehicleID_V1.0/image'
+    training_csv = 'result.csv'
+    val_csv = 'val.csv'
+    training_dir = 'VehicleID_V1.0/image'
     feed_shape = [3, 224, 224]
 
     transform = transforms.Compose([
@@ -419,7 +419,7 @@ if __name__ == '__main__':
         # Evaluation Loop End
 
         # Update "best.pth" model if val_loss in current epoch is lower than the best validation loss
-        name = "/content/drive/MyDrive/2_{}_{}_{}.pth".format(str(sum(losses) / len(losses)), val_loss, epoch)
+        name = "drive/MyDrive/2_{}_{}_{}.pth".format(str(sum(losses) / len(losses)), val_loss, epoch)
 
         torch.save(
             {
@@ -431,7 +431,7 @@ if __name__ == '__main__':
             name
         )
         if val_loss < best_val:
-            name = "/content/drive/MyDrive/2_Best{}_{}_{}.pth".format(str(sum(losses) / len(losses)), val_loss, epoch)
+            name = "drive/MyDrive/2_Best{}_{}_{}.pth".format(str(sum(losses) / len(losses)), val_loss, epoch)
 
             best_val = val_loss
             torch.save(
